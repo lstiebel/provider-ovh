@@ -268,6 +268,41 @@ func ipFirewallIdentifier(withSequence bool) config.ExternalName {
 	}
 }
 
+// isOVHLifecycleNotFoundError reports whether the Read of an
+// ovh_cloud_project_storage_object_bucket_lifecycle_configuration failed
+// because the bucket has no lifecycle configuration yet. For such a bucket
+// OVH answers GET .../storage/{containerName}/lifecycle with a 500
+// (Server::InternalServerError) instead of a 404, and the upstream Read turns
+// every status but 404 into an "Error calling GET <endpoint>" diagnostic, so
+// without this the first Observe fails forever and Create is never called.
+//
+// Treating a 500 as "does not exist" is safe here: Create is a PUT of the
+// whole lifecycle configuration (a full, idempotent replace), so a transient
+// 500 on a bucket that does have one only rewrites the desired rules.
+func isOVHLifecycleNotFoundError(diags []*tfprotov6.Diagnostic) bool {
+	for _, d := range diags {
+		if d == nil || d.Severity != tfprotov6.DiagnosticSeverityError {
+			continue
+		}
+		summary := strings.ToLower(strings.TrimSpace(d.Summary))
+		if !strings.HasPrefix(summary, "error calling get ") || !strings.HasSuffix(summary, "/lifecycle") {
+			continue
+		}
+		if strings.Contains(d.Detail, "status code 404") || strings.Contains(d.Detail, "status code 500") {
+			return true
+		}
+	}
+	return false
+}
+
+// lifecycleConfigurationIdentifierFromProvider is config.IdentifierFromProvider
+// with the not-found handling of isOVHLifecycleNotFoundError.
+var lifecycleConfigurationIdentifierFromProvider = func() config.ExternalName {
+	e := config.IdentifierFromProvider
+	e.IsNotFoundDiagnosticFn = isOVHLifecycleNotFoundError
+	return e
+}()
+
 // serviceNameIdentifierFromProvider builds the "<service_name>/<id>" Terraform
 // identifier used by resources scoped to a single service.
 var serviceNameIdentifierFromProvider = config.ExternalName{
@@ -627,7 +662,7 @@ var TerraformPluginFrameworkExternalNameConfigs = map[string]config.ExternalName
 	"ovh_cloud_storage_object_bucket":                                 config.IdentifierFromProvider,
 	"ovh_cloud_project_file_storage_share":                            config.IdentifierFromProvider,
 	"ovh_cloud_project_file_storage_share_network":                    config.IdentifierFromProvider,
-	"ovh_cloud_project_storage_object_bucket_lifecycle_configuration": config.IdentifierFromProvider,
+	"ovh_cloud_project_storage_object_bucket_lifecycle_configuration": lifecycleConfigurationIdentifierFromProvider,
 	"ovh_cloud_project_storage_replication_job":                       config.IdentifierFromProvider,
 	"ovh_storage_efs":                                                 config.IdentifierFromProvider,
 

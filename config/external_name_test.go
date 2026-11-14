@@ -376,6 +376,93 @@ func TestIPFirewallIdentifier(t *testing.T) {
 	})
 }
 
+func TestLifecycleConfigurationNotFoundDiagnostic(t *testing.T) {
+	cfg := TerraformPluginFrameworkExternalNameConfigs["ovh_cloud_project_storage_object_bucket_lifecycle_configuration"]
+	if cfg.IsNotFoundDiagnosticFn == nil {
+		t.Fatal("IsNotFoundDiagnosticFn not set (regression — entry likely set to IdentifierFromProvider)")
+	}
+
+	const endpoint = "/cloud/project/svc-1/region/GRA/storage/bucket-1/lifecycle"
+	cases := map[string]struct {
+		diag *tfprotov6.Diagnostic
+		want bool
+	}{
+		"500OnBucketWithoutLifecycle": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling GET " + endpoint,
+				Detail:   `OVHcloud API error (status code 500): Server::InternalServerError: "Internal server error"`,
+			},
+			want: true,
+		},
+		"404": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling GET " + endpoint,
+				Detail:   `OVHcloud API error (status code 404): Client::NotFound: "not found"`,
+			},
+			want: true,
+		},
+		"SummaryCaseInsensitive": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling Get " + endpoint,
+				Detail:   `OVHcloud API error (status code 500): Server::InternalServerError: "Internal server error"`,
+			},
+			want: true,
+		},
+		"OtherStatus": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling GET " + endpoint,
+				Detail:   `OVHcloud API error (status code 403): Client::Forbidden: "This call has not been granted"`,
+			},
+			want: false,
+		},
+		"OtherEndpoint": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling GET /cloud/project/svc-1/region/GRA/storage/bucket-1",
+				Detail:   `OVHcloud API error (status code 500): Server::InternalServerError: "Internal server error"`,
+			},
+			want: false,
+		},
+		"OtherMethod": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityError,
+				Summary:  "Error calling PUT " + endpoint,
+				Detail:   `OVHcloud API error (status code 500): Server::InternalServerError: "Internal server error"`,
+			},
+			want: false,
+		},
+		"Warning": {
+			diag: &tfprotov6.Diagnostic{
+				Severity: tfprotov6.DiagnosticSeverityWarning,
+				Summary:  "Error calling GET " + endpoint,
+				Detail:   `OVHcloud API error (status code 500): Server::InternalServerError: "Internal server error"`,
+			},
+			want: false,
+		},
+		"Nil": {
+			diag: nil,
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := cfg.IsNotFoundDiagnosticFn([]*tfprotov6.Diagnostic{tc.diag}); got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("IDFromProvider", func(t *testing.T) {
+		got, err := cfg.GetIDFn(context.Background(), "svc-1/GRA/bucket-1", nil, nil)
+		assertGetID(t, got, err, "svc-1/GRA/bucket-1", "")
+	})
+}
+
 func assertGetID(t *testing.T, got string, err error, want, wantErr string) {
 	t.Helper()
 	if wantErr != "" {

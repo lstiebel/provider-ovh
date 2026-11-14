@@ -3,6 +3,13 @@
 > IMPORTANT: Update this file for each tagged release before (or as part of) CI so it accurately reflects changes delivered in that version. The CI workflow will append this file along with other extension assets to the published package.
 
 ## Unreleased
+### Fixed
+- `ProjectStorageLifecycleConfiguration` (`storage`): the lifecycle of a
+  bucket that has none yet is now created. OVH answers the observe's
+  `GET .../lifecycle` for such a bucket with HTTP 500 instead of 404, which
+  failed every observe and never reached Create; a 404 or 500 on that read
+  now means "does not exist". Create is an idempotent PUT of the whole
+  lifecycle, so a transient 500 only rewrites the desired rules.
 
 ## v2.23.1 - 2026-10-26
 ### Fixed
